@@ -89,6 +89,12 @@
           example-minimal = self.homeConfigurations.example-minimal.activationPackage;
           example-26 = self.homeConfigurations.example-26.activationPackage;
           example-27 = self.homeConfigurations.example-27.activationPackage;
+          module-tests = import ./tests/module.nix {
+            inherit (nixpkgs) lib;
+            inherit home-manager;
+            pkgs = nixpkgs.legacyPackages.${system};
+            module = self.homeModules.default;
+          };
         }
       );
 
