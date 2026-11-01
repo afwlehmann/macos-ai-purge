@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e4e6ea"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="18"/>
+      <feOffset dy="18" result="b"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- orb -->
+    <radialGradient id="orbBase" cx="50%" cy="55%" r="55%">
+      <stop offset="0" stop-color="#150a3a"/>
+      <stop offset="0.7" stop-color="#0a0720"/>
+      <stop offset="1" stop-color="#05030f"/>
+    </radialGradient>
+    <linearGradient id="ribbonA" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff2fa0" stop-opacity="0"/>
+      <stop offset="0.25" stop-color="#ff2fa0"/>
+      <stop offset="0.6" stop-color="#a24bff"/>
+      <stop offset="1" stop-color="#2fb8ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ribbonB" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#27e0ff" stop-opacity="0"/>
+      <stop offset="0.3" stop-color="#27e0ff"/>
+      <stop offset="0.7" stop-color="#4f6bff"/>
+      <stop offset="1" stop-color="#ff3fb0" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ribbonC" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="bloomMagenta" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ff2f9e" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ff2f9e" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bloomCyan" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#1fd0ff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#1fd0ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bloomViolet" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#7b3dff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#7b3dff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="rim" cx="50%" cy="50%" r="50%">
+      <stop offset="0.82" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.96" stop-color="#9fd8ff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.85"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="orbClip"><circle cx="512" cy="512" r="215"/></clipPath>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="22"/></filter>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="g"/>
+      <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="orbShadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
+      <feOffset dy="8" result="b"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- squircle with shadow; outside stays transparent -->
+  <rect x="112" y="92" width="800" height="800" rx="180" ry="180" fill="url(#bg)" filter="url(#shadow)"/>
+
+  <!-- Siri orb -->
+  <g filter="url(#orbShadow)">
+    <circle cx="512" cy="512" r="215" fill="url(#orbBase)"/>
+  </g>
+  <g clip-path="url(#orbClip)">
+    <!-- color blooms -->
+    <g filter="url(#soft)" style="mix-blend-mode:screen">
+      <circle cx="400" cy="620" r="150" fill="url(#bloomMagenta)"/>
+      <circle cx="640" cy="400" r="150" fill="url(#bloomCyan)"/>
+      <circle cx="620" cy="640" r="130" fill="url(#bloomViolet)"/>
+    </g>
+    <!-- flowing ribbons -->
+    <g filter="url(#glow)" fill="none" stroke-linecap="round">
+      <path d="M270 560 C 360 420, 450 700, 540 540 S 700 400, 770 470" stroke="url(#ribbonA)" stroke-width="34" opacity="0.95"/>
+      <path d="M260 480 C 350 640, 460 380, 550 520 S 690 660, 780 560" stroke="url(#ribbonB)" stroke-width="30" opacity="0.95"/>
+      <path d="M280 520 C 380 470, 450 600, 540 520 S 680 470, 760 520" stroke="url(#ribbonC)" stroke-width="10" opacity="0.9"/>
+      <path d="M300 600 C 400 520, 470 660, 560 580 S 690 540, 740 590" stroke="url(#ribbonC)" stroke-width="5" opacity="0.6"/>
+    </g>
+    <!-- glass highlight and rim -->
+    <ellipse cx="512" cy="370" rx="150" ry="80" fill="url(#glass)" opacity="0.7"/>
+    <circle cx="512" cy="512" r="215" fill="url(#rim)"/>
+  </g>
+  <circle cx="512" cy="512" r="214" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="3"/>
+
+  <!-- prohibition sign -->
+  <circle cx="512" cy="512" r="300" fill="none" stroke="#e5262b" stroke-width="64"/>
+  <line x1="300" y1="300" x2="724" y2="724" stroke="#e5262b" stroke-width="64" stroke-linecap="butt"/>
+</svg>
