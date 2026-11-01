@@ -79,6 +79,7 @@
               # Linting
               statix.enable = true;
               deadnix.enable = true;
+              actionlint.enable = true;
               # Secrets and commit messages (Conventional Commits)
               ripsecrets.enable = true;
               convco.enable = true;
