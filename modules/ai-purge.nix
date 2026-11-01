@@ -7,13 +7,13 @@
 let
   cfg = config.programs.macosAiPurge;
   catalog = import ./catalog.nix;
+  helpers = import ./lib.nix { inherit lib; };
 
   inherit (lib)
     attrNames
     concatMap
     filterAttrs
     foldl'
-    mapAttrs
     mapAttrsToList
     mkOption
     recursiveUpdate
@@ -21,7 +21,7 @@ let
     unique
     ;
 
-  major = cfg.macosVersion;
+  available = helpers.available cfg.macosVersion;
 
   # One typed option per catalog entry.
   flagsFor =
@@ -36,18 +36,6 @@ let
       );
     };
 
-  normalize =
-    entry:
-    {
-      restrictions = [ ];
-      forced = { };
-      prefs = { };
-      modelSets = [ ];
-      mode = null;
-      since = 15;
-    }
-    // entry;
-  available = entries: filterAttrs (_: e: major >= e.since) (mapAttrs (_: normalize) entries);
   mergeAll = foldl' recursiveUpdate { };
 
   # Apple Intelligence features that are turned off.
@@ -56,12 +44,7 @@ let
 
   # Mirror Catalog.setsToRemove: a set is blocked when every available feature
   # that uses it is off.
-  setOverride =
-    name:
-    if builtins.isAttrs cfg.blockModelDownloads then
-      cfg.blockModelDownloads.${name}
-    else
-      cfg.blockModelDownloads;
+  setOverride = name: cfg.blockModelDownloads.${name};
   setUsers = name: attrNames (filterAttrs (_: f: builtins.elem name f.modelSets) features);
   blockedSets = lib.filter (
     name:
@@ -130,7 +113,7 @@ let
     // attrs;
   managedPrefs =
     domain: settings:
-    payload "${id}.preferences.${domain}" "com.apple.ManagedClient.preferences" {
+    payload "${id}.preferences.${lib.removePrefix "." domain}" "com.apple.ManagedClient.preferences" {
       PayloadDisplayName = "Managed preferences: ${domain}";
       PayloadContent.${domain}.Forced = [ { mcx_preference_settings = settings; } ];
     };
@@ -162,6 +145,8 @@ let
       (managedPrefs id {
         inherit profileHash;
         inherit (cfg) macosVersion;
+        # Lets activation find profiles installed under another identifier.
+        macosAiPurgeIdentifier = id;
       })
     ];
   };
@@ -171,6 +156,22 @@ let
   profilePath = "Library/Application Support/macos-ai-purge/macos-ai-purge.mobileconfig";
 
   markerFile = lib.escapeShellArg "${id}.plist";
+
+  # Prints the identifier of every installed macos-ai-purge profile (one per
+  # line) by scanning the managed-preference markers.
+  listInstalledProfiles = ''
+    aiPurgeListInstalled() {
+      local dir file found
+      for dir in "/Library/Managed Preferences" "/Library/Managed Preferences/$(/usr/bin/id -un)"; do
+        for file in "$dir"/*.plist; do
+          [[ -r "$file" ]] || continue
+          found="$(/usr/bin/defaults read "$file" macosAiPurgeIdentifier 2>/dev/null || true)"
+          [[ -n "$found" ]] && printf '%s\n' "$found"
+        done
+      done
+      return 0
+    }
+  '';
 in
 {
   options.programs.macosAiPurge = {
@@ -235,21 +236,23 @@ in
     };
 
     blockModelDownloads = mkOption {
-      type = types.either types.bool (
-        flagsFor catalog.modelSets types.bool true (name: "Block downloads of the ${name} model set.")
-      );
+      # A bool sets every set at default priority, so per-set values from
+      # other modules still override it.
+      type = types.coercedTo types.bool (
+        b: lib.genAttrs (attrNames catalog.modelSets) (_: lib.mkDefault b)
+      ) (flagsFor catalog.modelSets types.bool true (name: "Block downloads of the ${name} model set."));
       default = true;
       example = {
         spatial = false;
       };
-      description = "Point model downloads at a closed local port for every model set whose features are all off. An attrset disables blocking per set (${lib.concatStringsSep ", " (attrNames catalog.modelSets)}).";
+      description = "Point model downloads at a closed local port for every model set whose features are all off. A bool applies to all sets; an attrset sets them individually (${lib.concatStringsSep ", " (attrNames catalog.modelSets)}), and explicit per-set values override a bool.";
     };
 
     profile = {
       identifier = mkOption {
-        type = types.strMatching "[A-Za-z0-9][A-Za-z0-9.-]*";
+        type = types.strMatching helpers.identifierPattern;
         default = "com.afwlehmann.macos-ai-purge";
-        description = "PayloadIdentifier of the generated configuration profile.";
+        description = "PayloadIdentifier of the generated configuration profile. Changing it installs a second profile; remove the old one in System Settings (activation warns about it).";
       };
       autoOpen = mkOption {
         type = types.bool;
@@ -259,64 +262,86 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
-    assertions = [
-      (lib.hm.assertions.assertPlatform "programs.macosAiPurge" pkgs lib.platforms.darwin)
-      {
-        assertion = lib.intersectLists restrictions catalog.mdmOnlyKeys == [ ];
-        message = "programs.macosAiPurge: MDM-only keys make macOS reject the profile: ${lib.concatStringsSep ", " (lib.intersectLists restrictions catalog.mdmOnlyKeys)}";
-      }
-      {
-        assertion = !(forced ? ${id});
-        message = "programs.macosAiPurge: profile.identifier ${id} collides with a managed preference domain; choose another identifier.";
-      }
-    ];
-
-    home.file.${profilePath}.source = profileFile;
-
-    # mkDefault so the user's own targets.darwin.defaults win on conflict.
-    targets.darwin.defaults = lib.mapAttrsRecursive (_: lib.mkDefault) (
-      mergeAll (
-        map (t: t.prefs) tweakList
-        ++ [
-          # Best effort: user-level opt-out, observed set to 1 on macOS 26.
-          { "com.apple.CloudSubscriptionFeatures.optIn".auto_opt_in = false; }
-        ]
-      )
-    );
-
-    home.activation.macosAiPurge = lib.hm.dag.entryAfter [ "writeBoundary" "setDarwinDefaults" ] ''
-      aiPurgeMajor="$(/usr/bin/sw_vers -productVersion)"
-      aiPurgeMajor="''${aiPurgeMajor%%.*}"
-      if [[ "$aiPurgeMajor" != ${toString cfg.macosVersion} ]]; then
-        warnEcho "macosAiPurge: macosVersion is ${toString cfg.macosVersion} but this host runs macOS $aiPurgeMajor; update the option and re-approve the profile."
-      fi
-
-      # Accept the profile if either the device- or user-level marker matches.
-      aiPurgeCurrent=""
-      for aiPurgeDir in "/Library/Managed Preferences" "/Library/Managed Preferences/$(/usr/bin/id -un)"; do
-        aiPurgeMarker="$aiPurgeDir/"${markerFile}
-        if [[ -r "$aiPurgeMarker" ]] \
-          && [[ "$(/usr/bin/defaults read "$aiPurgeMarker" profileHash 2>/dev/null || true)" == ${lib.escapeShellArg profileHash} ]]; then
-          aiPurgeCurrent=1
-        fi
-      done
-      if [[ -z "$aiPurgeCurrent" ]]; then
-        ${
-          if cfg.profile.autoOpen then
-            ''
-              warnEcho "macosAiPurge: profile not installed or outdated; opening it. Approve it in System Settings > General > Device Management."
-              # Registers the profile with System Settings; approval stays manual (macOS requirement).
-              run /usr/bin/open "$HOME/"${lib.escapeShellArg profilePath} \
-                && run /usr/bin/open "x-apple.systempreferences:com.apple.Profiles-Settings.extension" \
-                || warnEcho "macosAiPurge: could not open the profile (no GUI session?). Run: open \"$HOME/${profilePath}\""
-            ''
-          else
-            ''
-              warnEcho "macosAiPurge: profile not installed or outdated. Run: open \"$HOME/${profilePath}\" and approve it in System Settings > General > Device Management."
-            ''
+  config = lib.mkMerge [
+    (lib.mkIf cfg.enable {
+      assertions = [
+        (lib.hm.assertions.assertPlatform "programs.macosAiPurge" pkgs lib.platforms.darwin)
+        {
+          assertion = lib.intersectLists restrictions catalog.mdmOnlyKeys == [ ];
+          message = "programs.macosAiPurge: MDM-only keys make macOS reject the profile: ${lib.concatStringsSep ", " (lib.intersectLists restrictions catalog.mdmOnlyKeys)}";
         }
-      fi
-    '';
-  };
+        {
+          assertion = !(forced ? ${id});
+          message = "programs.macosAiPurge: profile.identifier ${id} collides with a managed preference domain; choose another identifier.";
+        }
+      ];
+
+      home.file.${profilePath}.source = profileFile;
+
+      # mkDefault so the user's own targets.darwin.defaults win on conflict.
+      targets.darwin.defaults = lib.mapAttrsRecursive (_: lib.mkDefault) (
+        mergeAll (
+          map (t: t.prefs) tweakList
+          ++ [
+            # Best effort: user-level opt-out, observed set to 1 on macOS 26.
+            # Only when some Apple Intelligence feature is turned off.
+            (lib.optionalAttrs (featuresOff != { }) {
+              "com.apple.CloudSubscriptionFeatures.optIn".auto_opt_in = false;
+            })
+          ]
+        )
+      );
+
+      home.activation.macosAiPurge = lib.hm.dag.entryAfter [ "writeBoundary" "setDarwinDefaults" ] ''
+        aiPurgeMajor="$(/usr/bin/sw_vers -productVersion)"
+        aiPurgeMajor="''${aiPurgeMajor%%.*}"
+        if [[ "$aiPurgeMajor" != ${toString cfg.macosVersion} ]]; then
+          warnEcho "macosAiPurge: macosVersion is ${toString cfg.macosVersion} but this host runs macOS $aiPurgeMajor; update the option and re-approve the profile."
+        fi
+
+        # Accept the profile if either the device- or user-level marker matches.
+        aiPurgeCurrent=""
+        for aiPurgeDir in "/Library/Managed Preferences" "/Library/Managed Preferences/$(/usr/bin/id -un)"; do
+          aiPurgeMarker="$aiPurgeDir/"${markerFile}
+          if [[ -r "$aiPurgeMarker" ]] \
+            && [[ "$(/usr/bin/defaults read "$aiPurgeMarker" profileHash 2>/dev/null || true)" == ${lib.escapeShellArg profileHash} ]]; then
+            aiPurgeCurrent=1
+          fi
+        done
+        if [[ -z "$aiPurgeCurrent" ]]; then
+          ${
+            if cfg.profile.autoOpen then
+              ''
+                warnEcho "macosAiPurge: profile not installed or outdated; opening it. Approve it in System Settings > General > Device Management."
+                # Registers the profile with System Settings; approval stays manual (macOS requirement).
+                run /usr/bin/open "$HOME/"${lib.escapeShellArg profilePath} \
+                  && run /usr/bin/open "x-apple.systempreferences:com.apple.Profiles-Settings.extension" \
+                  || warnEcho "macosAiPurge: could not open the profile (no GUI session?). Run: open \"$HOME/${profilePath}\""
+              ''
+            else
+              ''
+                warnEcho "macosAiPurge: profile not installed or outdated. Run: open \"$HOME/${profilePath}\" and approve it in System Settings > General > Device Management."
+              ''
+          }
+        fi
+
+        ${listInstalledProfiles}
+        while IFS= read -r aiPurgeOther; do
+          if [[ "$aiPurgeOther" != ${lib.escapeShellArg id} ]]; then
+            warnEcho "macosAiPurge: a profile with the old identifier $aiPurgeOther is still installed and its settings stay in force. Remove it in System Settings > General > Device Management."
+          fi
+        done < <(aiPurgeListInstalled)
+      '';
+    })
+
+    # Disabled module: a previously installed profile keeps its settings in force.
+    (lib.mkIf (!cfg.enable && pkgs.stdenv.hostPlatform.isDarwin) {
+      home.activation.macosAiPurge = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        ${listInstalledProfiles}
+        while IFS= read -r aiPurgeOther; do
+          warnEcho "macosAiPurge: the module is disabled, but profile $aiPurgeOther is still installed and its settings stay in force. Remove it in System Settings > General > Device Management."
+        done < <(aiPurgeListInstalled)
+      '';
+    })
+  ];
 }

@@ -1,10 +1,11 @@
 # AGENTS.md
 
 - **Layout.**
-  - `flake.nix` holds the outputs: `homeModules.default` (aliased as `homeManagerModules.default`), `homeConfigurations.example-{minimal,26,27}`, `checks`, `devShells` and `formatter`.
+  - `flake.nix` holds the outputs: `homeModules.default`, `homeConfigurations.example-{minimal,26,27}`, `checks`, `devShells` and `formatter`.
   - `modules/ai-purge.nix` holds the module logic.
+  - `modules/lib.nix` holds pure helpers (catalog normalisation, version gate, identifier pattern) shared with the tests.
   - `tests/module.nix` holds evaluation-time module tests, exposed as `checks.aarch64-darwin.module-tests`. Add a test for every behaviour change.
-  - `.github/workflows/ci.yml` runs lint, build and test on GitHub-hosted `macos-26` runners, installing Nix first. `.github/workflows/release.yml` reruns CI for `vX.Y.Z` tags and then creates a GitHub release with generated notes.
+  - `.github/workflows/ci.yml` runs lint, build and test on GitHub-hosted `macos-26` runners, installing Nix first. `.github/workflows/release.yml` checks that a `vX.Y.Z` tag is annotated and points to a commit on `main`, reruns CI, and then creates a GitHub release with generated notes.
   - `docs/logo.svg` is the README logo.
   - `modules/catalog.nix` holds the data only. Keep it in sync with RemoveMacAI's `Catalog.swift` and `Tweaks.swift`.
 - **Scope.** Only Apple Intelligence features and privacy tweaks. Don't port RemoveMacAI's cosmetic tweaks (Finder, Dock, typing, windows) or its service restrictions.

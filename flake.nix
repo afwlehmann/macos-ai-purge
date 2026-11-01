@@ -47,8 +47,6 @@
     in
     {
       homeModules.default = ./modules/ai-purge.nix;
-      # Legacy output name, kept for consumers that still use it.
-      homeManagerModules.default = self.homeModules.default;
 
       homeConfigurations = {
         example-26 = exampleFor {

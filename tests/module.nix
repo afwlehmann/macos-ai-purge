@@ -8,10 +8,12 @@
 }:
 let
   catalog = import ../modules/catalog.nix;
+  helpers = import ../modules/lib.nix { inherit lib; };
   profilePath = "Library/Application Support/macos-ai-purge/macos-ai-purge.mobileconfig";
 
-  eval =
-    settings:
+  # Evaluate the module (enabled by default) with extra modules.
+  evalWith =
+    extraModules:
     home-manager.lib.homeManagerConfiguration {
       inherit pkgs;
       modules = [
@@ -22,13 +24,13 @@ let
             homeDirectory = "/Users/test";
             stateVersion = "26.05";
           };
-          programs.macosAiPurge = {
-            enable = true;
-          }
-          // settings;
+          programs.macosAiPurge.enable = lib.mkDefault true;
         }
-      ];
+      ]
+      ++ extraModules;
     };
+  eval = settings: evalWith [ { programs.macosAiPurge = settings; } ];
+  activationOf = hm: hm.config.home.activation.macosAiPurge.data;
   cfgOf = settings: (eval settings).config.programs.macosAiPurge;
   defaultsOf = settings: (eval settings).config.targets.darwin.defaults;
   profileOf = settings: (eval settings).config.home.file.${profilePath}.source.text;
@@ -173,6 +175,102 @@ let
     testUnknownModeRejected = {
       expr = rejected { mode = "strict"; };
       expected = true;
+    };
+
+    # auto_opt_in is only written when some AI feature is off.
+    testOptOutWrittenByDefault = {
+      expr = (defaultsOf { })."com.apple.CloudSubscriptionFeatures.optIn".auto_opt_in or null;
+      expected = false;
+    };
+    testOptOutOmittedWhenAllFeaturesEnabled = {
+      expr =
+        (defaultsOf {
+          aiFeatures = lib.genAttrs (lib.attrNames catalog.features) (_: true);
+        })
+          ? "com.apple.CloudSubscriptionFeatures.optIn";
+      expected = false;
+    };
+
+    # A bool from one module and a per-set value from another merge.
+    testBlockModelDownloadsMergesAcrossModules = {
+      expr =
+        (evalWith [
+          { programs.macosAiPurge.blockModelDownloads = true; }
+          { programs.macosAiPurge.blockModelDownloads.spatial = false; }
+        ]).config.programs.macosAiPurge.blockModelDownloads;
+      expected = lib.genAttrs (lib.attrNames catalog.modelSets) (s: s != "spatial");
+    };
+    testBlockModelDownloadsFalseDisablesAll = {
+      expr = (cfgOf { blockModelDownloads = false; }).blockModelDownloads;
+      expected = lib.genAttrs (lib.attrNames catalog.modelSets) (_: false);
+    };
+
+    # Version gating (helper used by the module), with a dummy 27-only entry.
+    testVersionGateHidesNewerEntries = {
+      expr = lib.attrNames (
+        helpers.available 26 {
+          old = { };
+          new.since = 27;
+        }
+      );
+      expected = [ "old" ];
+    };
+    testVersionGateShowsEntriesOnTheirVersion = {
+      expr = lib.attrNames (
+        helpers.available 27 {
+          old = { };
+          new.since = 27;
+        }
+      );
+      expected = [
+        "new"
+        "old"
+      ];
+    };
+
+    # Leftover profiles are reported, also when the module is disabled.
+    testMarkerCarriesIdentifier = {
+      expr =
+        builtins.match
+          ".*<key>macosAiPurgeIdentifier</key>[[:space:]]*<string>com.afwlehmann.macos-ai-purge</string>.*"
+          (profileOf { }) != null;
+      expected = true;
+    };
+    testActivationWarnsAboutOtherProfiles = {
+      expr = lib.hasInfix "old identifier" (activationOf (eval { }));
+      expected = true;
+    };
+    testDisabledModuleWarnsAboutInstalledProfile = {
+      expr = lib.hasInfix "the module is disabled" (
+        activationOf (evalWith [ { programs.macosAiPurge.enable = false; } ])
+      );
+      expected = true;
+    };
+    testDisabledModuleWritesNothing = {
+      expr =
+        let
+          hm = evalWith [ { programs.macosAiPurge.enable = false; } ];
+        in
+        hm.config.home.file ? ${profilePath};
+      expected = false;
+    };
+
+    # Reverse-DNS identifiers only.
+    testIdentifierTrailingDotRejected = {
+      expr = rejected { profile.identifier = "com.example."; };
+      expected = true;
+    };
+    testIdentifierDoubleDotRejected = {
+      expr = rejected { profile.identifier = "com..example"; };
+      expected = true;
+    };
+    testIdentifierWithDashAccepted = {
+      expr = rejected { profile.identifier = "com.example.my-profile"; };
+      expected = false;
+    };
+    testNoDoubleDotInPayloadIdentifiers = {
+      expr = lib.hasInfix ".." (profileOf { });
+      expected = false;
     };
   };
 in

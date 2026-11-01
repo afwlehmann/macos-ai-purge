@@ -15,10 +15,11 @@ The feature catalog, profile layout, model download block and privacy items are 
   - forced managed preferences,
   - a model download block that points `DownloadServerBaseURLOverride-<assetType>` at a closed local port,
   - the locked (profile-only) privacy items.
-- **User defaults.** It writes the two non-locked privacy items (`network-ds-store-files`, `icloud-default-save`) and the user-level opt-out `com.apple.CloudSubscriptionFeatures.optIn auto_opt_in = false` via `targets.darwin.defaults`.
+- **User defaults.** It writes the two non-locked privacy items (`network-ds-store-files`, `icloud-default-save`) and, when at least one Apple Intelligence feature is off, the user-level opt-out `com.apple.CloudSubscriptionFeatures.optIn auto_opt_in = false` via `targets.darwin.defaults`.
 - **Activation checks.** On activation it:
   - warns if `macosVersion` doesn't match `sw_vers`,
-  - opens the profile for approval if it isn't installed or is outdated (checked through a hash marker in `/Library/Managed Preferences`).
+  - opens the profile for approval if it isn't installed or is outdated (checked through a hash marker in `/Library/Managed Preferences`),
+  - warns about profiles still installed under another identifier, or while the module is disabled.
 
 ## Usage
 
@@ -80,7 +81,8 @@ programs.macosAiPurge = {
     icloud-default-save = true; # saving new documents to iCloud by default; privacy: true
   };
 
-  # Point AI model downloads at a closed local port: true/false for all sets, or one bool per set:
+  # Point AI model downloads at a closed local port: true/false for all sets, or one bool per set
+  # (per-set values override a bool set elsewhere):
   # { foundation = true; # base language models (Siri, Writing Tools, summaries, …)
   #   visual = true;     # image models (Genmoji, Image Playground)
   #   spatial = true;    # Spatial Photos models
@@ -89,7 +91,7 @@ programs.macosAiPurge = {
   blockModelDownloads = true;
 
   profile = {
-    identifier = "com.afwlehmann.macos-ai-purge";
+    identifier = "com.afwlehmann.macos-ai-purge"; # changing it installs a second profile, see "Removing the Profile"
     autoOpen = true; # open profile + Device Management when it's missing or outdated
   };
 };
@@ -118,13 +120,20 @@ Default value of each `privacySettings.*` option per `mode`. `true` = the macOS 
 
 Options are resolved in this order. A later step can't override an earlier one.
 
-1. **`macosVersion`** filters the catalog first. AI features and privacy items newer than the configured version don't exist; for example, `spatial-photos` needs 26.
+1. **`macosVersion`** filters the catalog first. AI features and privacy items newer than the configured version don't exist. Today every entry is available on both 26 and 27; the filter matters once entries with `since = 27` are added.
 2. **`aiFeatures`** controls the Apple Intelligence features, and only those. Every available feature is turned off unless `aiFeatures.<id> = true`. `mode` and `privacySettings` never touch these features.
 3. **`privacySettings` over `mode`**: `mode` only sets the default of each `privacySettings.<id>` (`false` if the mode covers it, otherwise `true`). An explicit `privacySettings.<id> = true` or `false` always overrides the mode. `"privacy"` covers everything in `"recommended"`, and `mode = "apple"` (or `null`) keeps Apple's defaults, so every item defaults to `true`.
 4. **`blockModelDownloads`** can only narrow what `aiFeatures` allows. A model set is blocked only if every feature that uses it is turned off and blocking isn't disabled for that set. Setting it to `true` never blocks a set that an enabled feature needs.
 5. **Your own `targets.darwin.defaults`** override this module's user defaults, because the module sets them with `mkDefault`. They have no effect on keys forced by the profile.
 
 On `home-manager switch`, activation detects a missing or outdated profile and opens it together with **System Settings → General → Device Management**, where you approve it. macOS doesn't allow approving a profile without user interaction, so that click stays manual. Set `profile.autoOpen = false` to get only a warning with the `open` command instead.
+
+## Removing the Profile
+
+The profile stays installed, and its settings stay in force, until you remove it in **System Settings → General → Device Management** (or with `sudo profiles remove -identifier <identifier>`). Nix can't remove it for you. Activation warns in both cases where this matters:
+
+- **Changed `profile.identifier`:** macOS installs the new profile next to the old one, so the old settings keep applying. Activation lists every installed profile with a different identifier.
+- **`enable = false`:** activation keeps checking and warns while a profile is still installed. Remove the module import entirely once the profile is gone.
 
 ## Upgrading to macOS 27
 
@@ -155,7 +164,7 @@ The tables were checked against nix-darwin `ff0e21a` (2026-10-31): `modules/syst
 
 Two writes from this module have no dedicated nix-darwin option. They conflict only if `system.defaults.CustomUserPreferences` sets the same keys:
 - `network-ds-store-files = false`: `com.apple.desktopservices` `DSDontWriteNetworkStores` (`true`)
-- always written when the module is enabled: `com.apple.CloudSubscriptionFeatures.optIn` `auto_opt_in` (`false`)
+- written whenever at least one `aiFeatures.*` is `false`: `com.apple.CloudSubscriptionFeatures.optIn` `auto_opt_in` (`false`)
 
 ### Profile-Forced Key That nix-darwin Can Also Set
 
